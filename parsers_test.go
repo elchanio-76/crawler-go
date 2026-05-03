@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/url"
+	"reflect"
 	"testing"
 )
 
@@ -441,4 +442,134 @@ func TestGetImagesFromHTML(t *testing.T) {
 			}
 		})
 	}
+}
+
+
+func TestExtractPageData(t *testing.T) {
+	testURL := "https://blog.boot.dev"
+	tests := []struct {
+		name     string
+		inputURL string
+		inputBody string
+		expected PageData
+	}{
+		{
+			name:     "simple page",
+			inputURL: testURL,
+			inputBody: `
+			<html>
+				<body>
+					<h1>Hello World!</h1>
+					<p>This is a paragraph.</p>
+					<a href="/path/one">Boot.dev</a>
+					<a href="https://other.com/path/one">Something else</a>
+					<img src="https://blog.boot.dev/path/one" />
+					<img src="/path/two" />
+				</body>
+			</html>
+			`,
+			expected: PageData{
+				URL:           testURL,
+				Heading:       "Hello World!",
+				FirstParagraph: "This is a paragraph.",
+				OutgoingLinks: []string{"https://blog.boot.dev/path/one", "https://other.com/path/one"},
+				ImageURLs:     []string{"https://blog.boot.dev/path/one", "https://blog.boot.dev/path/two"},
+			},
+		},
+		{
+			name:     "no images",
+			inputURL: testURL,
+			inputBody: `
+			<html>
+				<body>
+					<h1>Hello World</h1>
+					<p>This is a paragraph.</p>
+					<a href="/path/one">Boot.dev</a>
+					<a href="https://other.com/path/one">Something else</a>
+				</body>
+			</html>
+			`,
+			expected: PageData{
+				URL:           testURL,
+				Heading:       "Hello World",
+				FirstParagraph: "This is a paragraph.",
+				OutgoingLinks: []string{"https://blog.boot.dev/path/one", "https://other.com/path/one"},
+				ImageURLs:     []string{},
+			},
+		},
+		{
+			name:     "no links",
+			inputURL: testURL,
+			inputBody: `
+			<html>
+				<body>
+					<h1>Hello World</h1>
+					<p>This is a paragraph.</p>
+					<img src="https://blog.boot.dev/path/one" />
+					<img src="/path/two" />
+				</body>
+			</html>
+			`,
+			expected: PageData{
+				URL:           testURL,
+				Heading:       "Hello World",
+				FirstParagraph: "This is a paragraph.",
+				OutgoingLinks: []string{},
+				ImageURLs:     []string{"https://blog.boot.dev/path/one", "https://blog.boot.dev/path/two"},
+			},
+		},
+		{
+			name:     "no heading",
+			inputURL: testURL,
+			inputBody: `
+			<html>
+				<body>
+					<p>This is a paragraph.</p>
+					<a href="/path/one">Boot.dev</a>
+					<a href="https://other.com/path/one">Something else</a>
+					<img src="https://blog.boot.dev/path/one" />
+					<img src="/path/two" />
+				</body>
+			</html>
+			`,
+			expected: PageData{
+				URL:           testURL,
+				Heading:       "",
+				FirstParagraph: "This is a paragraph.",
+				OutgoingLinks: []string{"https://blog.boot.dev/path/one", "https://other.com/path/one"},
+				ImageURLs:     []string{"https://blog.boot.dev/path/one", "https://blog.boot.dev/path/two"},
+			},
+		},
+		{
+			name:     "no paragraph",
+			inputURL: testURL,
+			inputBody: `
+			<html>
+				<body>
+					<h1>Hello World</h1>
+					<a href="/path/one">Boot.dev</a>
+					<a href="https://other.com/path/one">Something else</a>
+					<img src="https://blog.boot.dev/path/one" />
+					<img src="/path/two" />
+				</body>
+			</html>
+			`,
+			expected: PageData{
+				URL:           testURL,
+				Heading:       "Hello World",
+				FirstParagraph: "",
+				OutgoingLinks: []string{"https://blog.boot.dev/path/one", "https://other.com/path/one"},
+				ImageURLs:     []string{"https://blog.boot.dev/path/one", "https://blog.boot.dev/path/two"},
+			},
+		},
+	}
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := extractPageData(tc.inputBody, tc.inputURL)
+			if !reflect.DeepEqual(actual, tc.expected) {
+				t.Errorf("Test %v - PageData mismatch: expected %v, got %v", i, tc.expected, actual)
+			}
+		})
+	}
+
 }

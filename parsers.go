@@ -73,7 +73,7 @@ func getURLsFromHTML(html string, baseURL *url.URL) ([]string, error) {
 		return []string{}, fmt.Errorf("Error parsing html: %s", err)
 	}
 
-	var urls []string
+	urls := []string{}
 	doc.Find("a").Each(func(i int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
 		if exists {
@@ -101,12 +101,12 @@ func getImagesFromHTML(htm string, baseURL *url.URL) ([]string, error) {
 		return []string{}, fmt.Errorf("Error parsing html: %s", err)
 	}
 
-	var urls []string
+	urls := []string{}
 	doc.Find("img").Each(func(i int, s *goquery.Selection) {
 		src, exists := s.Attr("src")
 		if exists {
 			// Resolve relative URLs to absolute URLs
-			if src!= "" {
+			if src != "" {
 				absoluteURL, err := baseURL.Parse(src)
 				if err == nil {
 					urls = append(urls, absoluteURL.String())
@@ -116,4 +116,35 @@ func getImagesFromHTML(htm string, baseURL *url.URL) ([]string, error) {
 	})
 
 	return urls, nil
+}
+
+type PageData struct {
+	URL            string
+	Heading        string
+	FirstParagraph string
+	OutgoingLinks  []string
+	ImageURLs      []string
+}
+
+func extractPageData(html, pageURL string) PageData {
+	baseURL, err := url.Parse(pageURL)
+	if err != nil {
+		return PageData{}
+	}
+	urls, err := getURLsFromHTML(html, baseURL)
+	if err != nil {
+		return PageData{}
+	}
+	imageURLs, err := getImagesFromHTML(html, baseURL)
+	if err != nil {
+		return PageData{}
+	}
+
+	return PageData{
+		URL:            pageURL,
+		Heading:        getHeadingFromHTML(html),
+		FirstParagraph: getFirstParagraphFromHTML(html),
+		OutgoingLinks:  urls,
+		ImageURLs:      imageURLs,
+	}
 }
