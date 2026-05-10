@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	_ "fmt"
 	"net/url"
+	"os"
+	"sort"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -119,11 +122,11 @@ func getImagesFromHTML(htm string, baseURL *url.URL) ([]string, error) {
 }
 
 type PageData struct {
-	URL            string
-	Heading        string
-	FirstParagraph string
-	OutgoingLinks  []string
-	ImageURLs      []string
+	URL            string   `json:"url"`
+	Heading        string   `json:"heading"`
+	FirstParagraph string   `json:"first_paragraph"`
+	OutgoingLinks  []string `json:"outgoing_links"`
+	ImageURLs      []string `json:"image_urls"`
 }
 
 func extractPageData(html, pageURL string) PageData {
@@ -147,4 +150,34 @@ func extractPageData(html, pageURL string) PageData {
 		OutgoingLinks:  urls,
 		ImageURLs:      imageURLs,
 	}
+}
+
+func writeJSONReport(pages map[string]PageData, filename string) error {
+
+	// Create a slice to hold the sorted keys
+	keys := make([]string, 0, len(pages))
+	for key := range pages {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	// Convert the map to a slice of PageData
+	var pageDataSlice []PageData
+	for _, k := range keys {
+		pageDataSlice = append(pageDataSlice, pages[k])
+	}
+
+	// Marshal the slice to JSON
+	jsonData, err := json.MarshalIndent(pageDataSlice, "", "  ")
+	if err != nil {
+		return fmt.Errorf("Error marshaling JSON: %s", err)
+	}
+
+	// Write the JSON data to the file
+	err = os.WriteFile(filename, jsonData, 0644)
+	if err != nil {
+		return fmt.Errorf("Error writing JSON file: %s", err)
+	}
+
+	return nil
 }

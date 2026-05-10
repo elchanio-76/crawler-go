@@ -7,12 +7,14 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"strconv"
 )
 
 func getHTML(rawURL string) (string, error) {
 	// Returns the HTML of the given URL as a string.
 	// If there is an error fetching the HTML, return an empty string and the error.
-	
+
 	req, err := http.NewRequest("GET", rawURL, nil)
 	if err != nil {
 		return "", err
@@ -39,14 +41,13 @@ func getHTML(rawURL string) (string, error) {
 
 }
 
-func crawlPage(rawBAseURL, rawCurrentURL string, pages map[string]int) {
+func (cfg *config) crawlPage(rawCurrentURL string) {
 	// Crawls the given URL and updates the pages map with the number of times each URL is found.
 	// If there is an error fetching the HTML, return without updating the pages map.
 	// If the URL is not in the same domain as the base URL, return without updating the pages map.
 	// If the URL has already been crawled, return without fetching the HTML, just update the pages map count
-	baseURL, err := url.Parse(rawBAseURL)
-	if err != nil {
-		fmt.Printf("error parsing base URL: %v", err)
+
+	if len(cfg.pages) >= cfg.maxPages {
 		return
 	}
 	currentURL, err := url.Parse(rawCurrentURL)
@@ -54,7 +55,7 @@ func crawlPage(rawBAseURL, rawCurrentURL string, pages map[string]int) {
 		fmt.Printf("error parsing current URL: %v", err)
 		return
 	}
-	if baseURL.Hostname() != currentURL.Hostname() {
+	if cfg.baseURL.Hostname() != currentURL.Hostname() {
 		return
 	}
 	normalizedURL, err := normalizeURL(rawCurrentURL)
@@ -62,32 +63,35 @@ func crawlPage(rawBAseURL, rawCurrentURL string, pages map[string]int) {
 		fmt.Printf("error normalizing URL: %v", err)
 		return
 	}
-	if pages[normalizedURL] > 0 {
-		pages[normalizedURL]++
+	if cfg.IsPageVisited(normalizedURL) {
 		return
 	}
-	fmt.Printf("fetching %s\n", rawCurrentURL)
+
 	html, err := getHTML(rawCurrentURL)
 	if err != nil {
 		fmt.Printf("error fetching HTML: %v", err)
 		return
 	}
+	// Print the length of the HTML to confirm it was fetched.
+	fmt.Printf("fetched %s, length: %d\n", rawCurrentURL, len(html))
 
-	// Print a few characters of the HTML to confirm it was fetched.
-	chars := 100
-	if len(html)<200 {
-		chars = len(html)
-	}
-	fmt.Printf("fetched %s\n", html[:chars])
-
-	pages[normalizedURL] = 1
-	urls, err := getURLsFromHTML(html, baseURL)
+	pageData := extractPageData(html, rawCurrentURL)
+	cfg.AddPage(normalizedURL, pageData)
+	urls, err := getURLsFromHTML(html, cfg.baseURL)
+	fmt.Printf(" --> found %d URLs in %s\n", len(urls), rawCurrentURL)
 	if err != nil {
 		fmt.Printf("error getting URLs from HTML: %v", err)
 		return
 	}
 	for _, url := range urls {
-		crawlPage(rawBAseURL, url, pages)
+		// spawn go routine to crawl in parallel
+		cfg.wg.Add(1)
+		go func() {
+			cfg.concurrencyControl <- struct{}{}
+			defer cfg.wg.Done()
+			defer func() { <-cfg.concurrencyControl }()
+			cfg.crawlPage(url)
+		}()
 	}
 }
 
@@ -97,18 +101,50 @@ func main() {
 		fmt.Println("no website provided")
 		os.Exit(1)
 	}
-	if len(args) > 1 {
+	if len(args) > 3 {
 		fmt.Println("too many arguments provided")
 		os.Exit(1)
 	}
-	baseURL := args[0]
-	fmt.Printf("starting crawl of: %s\n",baseURL)
-	pages := make(map[string]int)
-	crawlPage(baseURL, baseURL, pages)
-	
-	for url, count := range pages {
-		fmt.Printf("Found %d internal links to %s\n", count, url)
+	baseURL, err := url.Parse(args[0])
+	if err != nil {
+		fmt.Printf("error parsing base URL: %v", err)
+		os.Exit(1)
 	}
-	
+	maxConcurrency := MAX_CONCURRENCY
+	maxPages := MAX_PAGES
+	if len(args) >= 2 {
+		maxConcurrency, err = strconv.Atoi(args[1])
+		if err != nil {
+			fmt.Printf("error parsing max pages: %v", err)
+			os.Exit(1)
+		}
+	}
+	if len(args) == 3 {
+		maxPages, err = strconv.Atoi(args[2])
+		if err != nil {
+			fmt.Printf("error parsing max pages: %v", err)
+			os.Exit(1)
+		}
+	}
+	fmt.Printf("max pages: %d\n", maxPages)
+	fmt.Printf("max concurrency: %d\n", maxConcurrency)
+	fmt.Printf("starting crawl of: %s\n", baseURL)
+	pages := make(map[string]PageData)
+
+	// create a new config struct
+	cfg := &config{
+		pages:              pages,
+		baseURL:            baseURL,
+		concurrencyControl: make(chan struct{}, maxConcurrency),
+		mux:                &sync.Mutex{},
+		wg:                 &sync.WaitGroup{},
+		maxPages:			maxPages,
+	}
+
+	cfg.crawlPage(baseURL.String())
+	cfg.wg.Wait()
+
+	writeJSONReport(cfg.pages, REPORT_FILE)
+
 	os.Exit(0)
 }
