@@ -565,7 +565,11 @@ func TestExtractPageData(t *testing.T) {
 	}
 	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			actual := extractPageData(tc.inputBody, tc.inputURL)
+			actual, err := extractPageData(tc.inputBody, tc.inputURL)
+			if err != nil {
+				t.Errorf("Test %v - '%s' FAIL: unexpected error: %v", i, tc.name, err)
+				return
+			}
 			if !reflect.DeepEqual(actual, tc.expected) {
 				t.Errorf("Test %v - PageData mismatch: expected %v, got %v", i, tc.expected, actual)
 			}

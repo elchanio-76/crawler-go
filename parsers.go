@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	_ "fmt"
 	"net/url"
 	"os"
 	"sort"
@@ -82,9 +81,9 @@ func getURLsFromHTML(html string, baseURL *url.URL) ([]string, error) {
 		if exists {
 			// Resolve relative URLs to absolute URLs
 			absoluteURL, err := baseURL.Parse(href)
-			// Trim section markers
-			absoluteURL.Fragment = ""
 			if err == nil {
+				// Trim section markers
+				absoluteURL.Fragment = ""
 				urls = append(urls, absoluteURL.String())
 			}
 		}
@@ -129,18 +128,18 @@ type PageData struct {
 	ImageURLs      []string `json:"image_urls"`
 }
 
-func extractPageData(html, pageURL string) PageData {
+func extractPageData(html, pageURL string) (PageData, error) {
 	baseURL, err := url.Parse(pageURL)
 	if err != nil {
-		return PageData{}
+		return PageData{}, fmt.Errorf("error parsing page URL %s: %w", pageURL, err)
 	}
 	urls, err := getURLsFromHTML(html, baseURL)
 	if err != nil {
-		return PageData{}
+		return PageData{}, fmt.Errorf("error getting URLs from %s: %w", pageURL, err)
 	}
 	imageURLs, err := getImagesFromHTML(html, baseURL)
 	if err != nil {
-		return PageData{}
+		return PageData{}, fmt.Errorf("error getting images from %s: %w", pageURL, err)
 	}
 
 	return PageData{
@@ -149,7 +148,7 @@ func extractPageData(html, pageURL string) PageData {
 		FirstParagraph: getFirstParagraphFromHTML(html),
 		OutgoingLinks:  urls,
 		ImageURLs:      imageURLs,
-	}
+	}, nil
 }
 
 func writeJSONReport(pages map[string]PageData, filename string) error {

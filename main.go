@@ -47,9 +47,6 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 	// If the URL is not in the same domain as the base URL, return without updating the pages map.
 	// If the URL has already been crawled, return without fetching the HTML, just update the pages map count
 
-	if len(cfg.pages) >= cfg.maxPages {
-		return
-	}
 	currentURL, err := url.Parse(rawCurrentURL)
 	if err != nil {
 		fmt.Printf("error parsing current URL: %v", err)
@@ -63,6 +60,8 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 		fmt.Printf("error normalizing URL: %v", err)
 		return
 	}
+	// Optimistic early check to avoid an unnecessary HTTP request for an already-visited page.
+	// The definitive dedup+maxPages enforcement happens atomically inside AddPageIfNew.
 	if cfg.IsPageVisited(normalizedURL) {
 		return
 	}
@@ -72,11 +71,16 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 		fmt.Printf("error fetching HTML: %v", err)
 		return
 	}
-	// Print the length of the HTML to confirm it was fetched.
 	fmt.Printf("fetched %s, length: %d\n", rawCurrentURL, len(html))
 
-	pageData := extractPageData(html, rawCurrentURL)
-	cfg.AddPage(normalizedURL, pageData)
+	pageData, err := extractPageData(html, rawCurrentURL)
+	if err != nil {
+		fmt.Printf("error extracting page data from %s: %v\n", rawCurrentURL, err)
+		return
+	}
+	if !cfg.AddPageIfNew(normalizedURL, pageData) {
+		return
+	}
 	urls, err := getURLsFromHTML(html, cfg.baseURL)
 	fmt.Printf(" --> found %d URLs in %s\n", len(urls), rawCurrentURL)
 	if err != nil {
@@ -144,7 +148,10 @@ func main() {
 	cfg.crawlPage(baseURL.String())
 	cfg.wg.Wait()
 
-	writeJSONReport(cfg.pages, REPORT_FILE)
+	if err := writeJSONReport(cfg.pages, REPORT_FILE); err != nil {
+		fmt.Printf("error writing report: %v\n", err)
+		os.Exit(1)
+	}
 
 	os.Exit(0)
 }

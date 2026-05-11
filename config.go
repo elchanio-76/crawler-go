@@ -18,10 +18,19 @@ type config struct {
 	maxPages			int
 }
 
-func (c *config) AddPage(urlStr string, data PageData) {
+// AddPageIfNew atomically checks the dedup set and maxPages limit, then inserts.
+// Returns false (and does not insert) if the page was already visited or the limit is reached.
+func (c *config) AddPageIfNew(urlStr string, data PageData) bool {
 	c.mux.Lock()
 	defer c.mux.Unlock()
+	if len(c.pages) >= c.maxPages {
+		return false
+	}
+	if _, exists := c.pages[urlStr]; exists {
+		return false
+	}
 	c.pages[urlStr] = data
+	return true
 }
 
 func (c *config) IsPageVisited(urlStr string) bool {
